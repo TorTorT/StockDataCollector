@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 #  Key SQL required
 #  create databasee stockdata;
 #  create table rawdata (compCode VARCHAR(10), date Date, data mediumblob, primary key (compCode, date));
-#  create table stat (compCode varchar(10), date date, v1 float, v2 float, v3 float, v4 float, v5 float, v6 float, primary key (compCode, date));
+#  create table stat (compCode varchar(10), date date, field varchar(100), val float, primary key (compCode, date, field));
 #  create table meta (compCode varchar(10), compName varchar(255), compIndustry varchar(255), primary key (compCode));
 #  create table fielddef (name varchar(10), def varchar(100), primary key (name));
 #
@@ -24,10 +24,6 @@ database_port = 3306
 database_login = 'dev'
 database_password = ''
 database_name = "stockdata"
-
-#dataMap = {'v1':'Price/Book', 'v2':'Forward Annual Dividend Rate'}
-
-
 
 
 def YahooDataCollector(comp):
@@ -46,7 +42,8 @@ def YahooDataCollector(comp):
 def contentParser(sitecontent, dataType):
 
     soup = BeautifulSoup(sitecontent, 'html.parser')
-    print(sitecontent)
+
+
     siteRecord = re.search(' \| (.+) Stock', soup.title.string)
     if siteRecord:
         compName = siteRecord.group(1)
@@ -126,14 +123,8 @@ def chkMetadata(conn, compCode, compName):
 
 def compStatProcessor(conn, compCode, today, sitecontent, dataMap = {}):
 
-    fieldname = ""
-    fieldformat = "%s, %s"
-    for r in sorted(dataMap.keys()):
-        fieldname += fieldname == "" and r or ", %s" % r
-    fieldformat += ", %s" * len(dataMap)
-
     sql_stat_check = "select 1 from stat where compCode=%s and date=%s"
-    sql_stat_update = "insert into stat (compCode, date, %s) values (%s)" % (fieldname,fieldformat)
+    sql_stat_update = "insert into stat (compCode, date, field, val) values (%s, %s, %s, %s)"
     sql_stat_get = "select * from stat where compCode=%s and date=%s"
 
 
@@ -145,15 +136,13 @@ def compStatProcessor(conn, compCode, today, sitecontent, dataMap = {}):
         # collect data from cache instead
         runSQL(conn, cur, sql_stat_get, (compCode, today))
         for row in cur:
-            for r in dataMap.keys():
-                res_hash[dataMap[r]] = row[r]
+            fname = dataMap[row["field"]]
+            res_hash[fname] = row["val"]
     else:
         (res, compName, res_hash) = contentParser(sitecontent, dataMap.values())
         if res:
-            arr = [compCode, today]
-            for r in sorted(dataMap.keys()):
-                arr.append("%s" % res_hash[dataMap[r]])
-            runSQL(conn, cur, sql_stat_update, arr)
+            for r in dataMap.keys():
+               runSQL(conn, cur, sql_stat_update, (compCode, today, r, res_hash[dataMap[r]]))
         else:
             cur.close()
             return (0, "", ())
